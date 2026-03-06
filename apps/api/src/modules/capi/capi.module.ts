@@ -4,9 +4,11 @@ import { CapiService } from './capi.service';
 import { CapiController } from './capi.controller';
 import { EmqMonitorService } from './emq-monitor.service';
 import { PiiNormalizerService } from './pii-normalizer.service';
+import { PrismaModule } from '../prisma/prisma.module';
+import { MetaAuthModule } from '../meta-auth/meta-auth.module';
 
 @Module({
-  imports: [HttpModule],
+  imports: [HttpModule, PrismaModule, MetaAuthModule],
   controllers: [CapiController],
   providers: [
     PiiNormalizerService,  // SHA-256 normalizácia PII + ochrana pred dvojitým hashovaním

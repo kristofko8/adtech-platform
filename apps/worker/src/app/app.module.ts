@@ -4,12 +4,14 @@ import { BullModule } from '@nestjs/bullmq';
 import {
   QUEUE_ACCOUNT_DISCOVERY,
   QUEUE_INSIGHTS_SYNC,
+  QUEUE_CREATIVE_SYNC,
   QUEUE_AUTOMATION_RULES,
   QUEUE_MEDIA_PROXY,
   QUEUE_CAPI_EVENTS,
 } from '@adtech/shared-types';
 import { AccountDiscoveryProcessor } from '../processors/account-discovery.processor';
 import { InsightsSyncProcessor } from '../processors/insights-sync.processor';
+import { CreativeSyncProcessor } from '../processors/creative-sync.processor';
 
 const configuration = () => ({
   redis: {
@@ -47,6 +49,7 @@ const configuration = () => ({
     BullModule.registerQueue(
       { name: QUEUE_ACCOUNT_DISCOVERY },
       { name: QUEUE_INSIGHTS_SYNC },
+      { name: QUEUE_CREATIVE_SYNC },
       { name: QUEUE_AUTOMATION_RULES },
       { name: QUEUE_MEDIA_PROXY },
       { name: QUEUE_CAPI_EVENTS },
@@ -55,6 +58,7 @@ const configuration = () => ({
   providers: [
     AccountDiscoveryProcessor,
     InsightsSyncProcessor,
+    CreativeSyncProcessor,
   ],
 })
 export class AppModule {}

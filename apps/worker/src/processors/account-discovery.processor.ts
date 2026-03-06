@@ -1,7 +1,8 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@adtech/database';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { MetaHttpClient, CampaignsService } from '@adtech/meta-api';
 import {
   QUEUE_ACCOUNT_DISCOVERY,
@@ -20,7 +21,7 @@ export interface AccountDiscoveryJobData {
 @Processor(QUEUE_ACCOUNT_DISCOVERY)
 export class AccountDiscoveryProcessor extends WorkerHost {
   private readonly logger = new Logger(AccountDiscoveryProcessor.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env['DATABASE_URL'] ?? '' }) } as never);
 
   constructor(
     @InjectQueue(QUEUE_INSIGHTS_SYNC)

@@ -23,7 +23,9 @@
     "db:seed": "ts-node ./prisma/seed.ts"
   },
   "dependencies": {
-    "@prisma/client": "^6.0.0",
+    "@prisma/adapter-pg": "^7.4.2",
+    "@prisma/client": "^7.4.2",
+    "pg": "^8.20.0",
     "tslib": "^2.3.0"
   }
 }

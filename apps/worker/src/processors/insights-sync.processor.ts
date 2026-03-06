@@ -13,7 +13,8 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@adtech/database';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { InsightsRepository } from '@adtech/analytics';
 import { MetaHttpClient, InsightsService, CampaignsService } from '@adtech/meta-api';
 import { QUEUE_INSIGHTS_SYNC, IOS14_RESYNC_WINDOW_HOURS } from '@adtech/shared-types';
@@ -40,7 +41,7 @@ const ASYNC_REPORT_POLL_INTERVAL_MS = 15_000;
 @Processor(QUEUE_INSIGHTS_SYNC)
 export class InsightsSyncProcessor extends WorkerHost {
   private readonly logger = new Logger(InsightsSyncProcessor.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env['DATABASE_URL'] ?? '' }) } as never);
   private readonly insightsRepo = new InsightsRepository();
 
   async process(job: Job<InsightsSyncJobData>): Promise<void> {

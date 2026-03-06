@@ -13,7 +13,8 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@adtech/database';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { CreativesService, MetaHttpClient, CampaignsService } from '@adtech/meta-api';
 import { CreativeRepository } from '@adtech/analytics';
 import { QUEUE_CREATIVE_SYNC } from '@adtech/shared-types';
@@ -35,7 +36,7 @@ interface AdWithCreative {
 @Processor(QUEUE_CREATIVE_SYNC)
 export class CreativeSyncProcessor extends WorkerHost {
   private readonly logger = new Logger(CreativeSyncProcessor.name);
-  private readonly prisma = new PrismaClient();
+  private readonly prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env['DATABASE_URL'] ?? '' }) } as never);
 
   async process(job: Job<CreativeSyncJobData>): Promise<void> {
     const { adAccountId, metaAccountId, accessToken, appSecretProof } = job.data;

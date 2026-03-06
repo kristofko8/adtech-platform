@@ -2,14 +2,12 @@
 // Transakčná vrstva (OLTP) - PostgreSQL
 
 generator client {
-  provider      = "prisma-client-js"
-  output        = "../generated"
-  binaryTargets = ["native"]
+  provider = "prisma-client"
+  output   = "../src/generated"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // ============================================================
@@ -79,13 +77,13 @@ model RefreshToken {
 
 model MetaToken {
   id               String    @id @default(cuid())
-  accessToken      String    // Šifrovaný AES-256
+  accessToken      String
   tokenType        String    @default("bearer")
   expiresAt        DateTime?
-  longLivedToken   String?   // 60-dňový token, šifrovaný
-  appScopedUserId  String?   // Meta User ID
-  businessId       String?   // Meta Business Manager ID
-  scopes           String[]  // Povolené oprávnenia
+  longLivedToken   String?
+  appScopedUserId  String?
+  businessId       String?
+  scopes           String[]
   isActive         Boolean   @default(true)
   lastRefreshedAt  DateTime  @default(now())
   createdAt        DateTime  @default(now())
@@ -115,7 +113,7 @@ enum AdAccountStatus {
 
 model AdAccount {
   id               String          @id @default(cuid())
-  metaAccountId    String          @unique // act_XXXXXXXXXX
+  metaAccountId    String          @unique
   name             String
   currency         String          @default("USD")
   timezone         String          @default("UTC")
@@ -177,17 +175,10 @@ model AutomationRule {
   description String?
   type        RuleType
   status      RuleStatus @default(ACTIVE)
-
-  // Podmienky vo formáte JSON (napr. { metric: "roas", operator: "lt", value: 2.0, window: "24h" })
   conditions  Json
-
-  // Akcie vo formáte JSON (napr. [{ action: "PAUSE_CAMPAIGN", params: {} }])
   actions     Json
-
-  // Limity na vykonávanie
-  cooldownMinutes    Int  @default(60)   // Minimálny čas medzi akciami
+  cooldownMinutes    Int  @default(60)
   maxExecutionsPerDay Int @default(3)
-
   lastTriggeredAt    DateTime?
   executionCount     Int       @default(0)
   createdAt          DateTime  @default(now())
@@ -206,8 +197,8 @@ model AutomationRule {
 model RuleExecution {
   id          String   @id @default(cuid())
   triggeredAt DateTime @default(now())
-  result      String   // "success" | "failed" | "skipped"
-  details     Json     // { triggeredByMetric: ..., actionsTaken: [...] }
+  result      String
+  details     Json
 
   ruleId String
   rule   AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
@@ -246,12 +237,9 @@ model SyncJob {
   errorMessage String?
   itemsProcessed Int       @default(0)
   itemsFailed    Int       @default(0)
-
-  // Rozsah synchronizácie
   dateFrom    DateTime?
   dateTo      DateTime?
-  metaJobId   String?     // Pre asynchrónne Meta reporty
-
+  metaJobId   String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -265,7 +253,7 @@ model SyncJob {
 }
 
 // ============================================================
-// KREATÍVNE AKTÍVA (Asset Map pre Entity Resolution)
+// KREATÍVNE AKTÍVA (Asset Map)
 // ============================================================
 
 enum AssetType {
@@ -276,18 +264,18 @@ enum AssetType {
 
 model AssetMap {
   id             String    @id @default(cuid())
-  globalAssetId  String    @unique // Naše interné ID
+  globalAssetId  String    @unique
   assetType      AssetType
-  imageHash      String?   // Pre obrázky (Meta image_hash)
-  videoId        String?   // Pre videá (Meta video_id)
-  pHash          String?   // Perceptuálny hash pre podobnosť
-  s3Key          String?   // Cesta v S3 archíve
-  s3Url          String?   // Archivovaná URL
+  imageHash      String?
+  videoId        String?
+  pHash          String?
+  s3Key          String?
+  s3Url          String?
   thumbnailS3Key String?
   width          Int?
   height         Int?
-  durationSec    Int?      // Pre videá
-  tags           String[]  // ["UGC", "9:16", "face-detected"]
+  durationSec    Int?
+  tags           String[]
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -299,9 +287,9 @@ model AssetMap {
 }
 
 model MetaCreativeMap {
-  id           String @id @default(cuid())
+  id             String   @id @default(cuid())
   metaCreativeId String
-  createdAt    DateTime @default(now())
+  createdAt      DateTime @default(now())
 
   globalAssetId String
   asset         AssetMap @relation(fields: [globalAssetId], references: [globalAssetId])
@@ -312,19 +300,19 @@ model MetaCreativeMap {
 }
 
 // ============================================================
-// CAPI (Conversions API) KONEKTORY
+// CAPI KONEKTORY
 // ============================================================
 
 model CapiConnector {
-  id              String   @id @default(cuid())
-  pixelId         String   // Meta Pixel ID
-  accessToken     String   // CAPI prístupový token (šifrovaný)
-  isActive        Boolean  @default(true)
-  testEventCode   String?  // Pre testovanie bez ostrých dát
-  emqScore        Float?   // Event Match Quality (0-10)
-  lastEmqCheck    DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            String   @id @default(cuid())
+  pixelId       String
+  accessToken   String
+  isActive      Boolean  @default(true)
+  testEventCode String?
+  emqScore      Float?
+  lastEmqCheck  DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   adAccountId String
   adAccount   AdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
@@ -359,8 +347,8 @@ model Notification {
 
 model AuditLog {
   id        String   @id @default(cuid())
-  action    String   // napr. "rule.executed", "budget.updated", "campaign.paused"
-  entity    String   // napr. "Campaign", "AutomationRule"
+  action    String
+  entity    String
   entityId  String
   before    Json?
   after     Json?

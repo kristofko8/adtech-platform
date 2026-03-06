@@ -1,6 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "baseUrl": ".",
     "outDir": "dist",
     "types": ["node"],
     "rootDir": "src",
@@ -10,5 +11,19 @@
     "target": "es2021"
   },
   "include": ["src/**/*.ts"],
-  "exclude": []
+  "exclude": [],
+  "references": [
+    {
+      "path": "../../packages/analytics/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/meta-api/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/shared-types/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/database/tsconfig.lib.json"
+    }
+  ]
 }
