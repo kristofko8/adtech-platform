@@ -1,6 +1,10 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app/app.module';
+import { validateProductionSecrets } from './config/secrets-validator';
+
+// Validácia kritických secrets pred spustením (crash-fast v produkcii)
+validateProductionSecrets();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {

@@ -37,6 +37,7 @@ export const CREATIVE_FATIGUE_HOOK_RATE_DROP = 0.20; // 20% pokles
 // BullMQ fronty
 export const QUEUE_ACCOUNT_DISCOVERY = 'account-discovery';
 export const QUEUE_INSIGHTS_SYNC = 'insights-sync';
+export const QUEUE_CREATIVE_SYNC = 'creative-sync';
 export const QUEUE_AUTOMATION_RULES = 'automation-rules';
 export const QUEUE_MEDIA_PROXY = 'media-proxy';
 export const QUEUE_CAPI_EVENTS = 'capi-events';

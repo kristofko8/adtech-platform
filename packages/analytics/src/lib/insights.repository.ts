@@ -9,7 +9,17 @@ export class InsightsRepository {
     this.client = client || getClickHouseClient();
   }
 
-  // Batch insert insightov (asynchrónny insert pre max výkon)
+  /**
+   * Batch insert insightov do ClickHouse.
+   *
+   * Používa async_insert + wait_for_async_insert=0 pre maximálny výkon:
+   * - ClickHouse prijme dáta a vloží ich asynchrónne (neblokuje worker)
+   * - Malé časti sa akumulujú v buffri a zapisujú naraz (menej partícií)
+   * - Odporúčaná veľkosť chunku: 1 000–10 000 riadkov
+   *
+   * POZOR: wait_for_async_insert=0 znamená, že chyby insertu nie sú
+   * okamžite reportované — monitoruj ClickHouse system.asynchronous_insert_log
+   */
   async batchInsert(insights: RawAdInsight[]): Promise<void> {
     if (insights.length === 0) return;
 
@@ -17,6 +27,34 @@ export class InsightsRepository {
       table: 'analytics.raw_ad_insights',
       values: insights,
       format: 'JSONEachRow',
+      clickhouse_settings: {
+        // Asynchrónny insert — ClickHouse bufferuje dáta a zapisuje naraz
+        async_insert: 1,
+        // Neblokujeme worker čakaním na potvrdenie insertu
+        // (pre kritické dáta nastav na 1 — pomalšie, ale garantované)
+        wait_for_async_insert: 0,
+        // Maximálna veľkosť buffra pred vynútením flush
+        async_insert_max_data_size: '10485760', // 10 MB
+        // Maximálny čas čakania na flush (sekundy)
+        async_insert_busy_timeout_ms: 1000,
+      },
+    });
+  }
+
+  /**
+   * Synchronný batch insert pre kritické dáta (backfill, resync).
+   * Čaká na potvrdenie insertu — pomalšie, ale garantované.
+   */
+  async batchInsertSync(insights: RawAdInsight[]): Promise<void> {
+    if (insights.length === 0) return;
+
+    await this.client.insert({
+      table: 'analytics.raw_ad_insights',
+      values: insights,
+      format: 'JSONEachRow',
+      clickhouse_settings: {
+        async_insert: 0, // Synchrónny insert
+      },
     });
   }
 

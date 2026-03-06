@@ -1,5 +1,6 @@
 import { ClickHouseClient } from '@clickhouse/client';
 import { getClickHouseClient } from './clickhouse.client.js';
+import { RawAdInsight } from '@adtech/shared-types';
 import {
   CREATIVE_HOOK_RATE_ELITE,
   CREATIVE_HOOK_RATE_STRONG,
@@ -126,6 +127,53 @@ export class CreativeRepository {
     });
 
     return result.json();
+  }
+
+  // ── Backfill metódy pre CreativeSyncProcessor ────────────────────────────
+
+  /**
+   * Načíta záznamy z ClickHouse kde creative_id = 0 pre daný účet.
+   * Tieto záznamy vznikli keď insights-sync bežal pred creative-sync.
+   *
+   * Používa FINAL pre správne de-duplikovanie ReplacingMergeTree.
+   */
+  async getOrphanedInsights(accountId: number): Promise<RawAdInsight[]> {
+    const result = await this.client.query({
+      query: `
+        SELECT *
+        FROM analytics.raw_ad_insights FINAL
+        WHERE
+          account_id = {accountId:UInt64}
+          AND creative_id = 0
+          AND date >= today() - 7
+        ORDER BY date DESC, ad_id ASC
+        LIMIT 50000
+      `,
+      query_params: { accountId },
+      format: 'JSONEachRow',
+    });
+
+    return result.json<RawAdInsight>();
+  }
+
+  /**
+   * Vloží opravené záznamy insightov (s creative_id > 0) do ClickHouse.
+   * Vyšší `version` timestamp zaistí, že ReplacingMergeTree zachová
+   * tieto nové riadky a zahodí staré (version = 0).
+   */
+  async batchInsertInsights(insights: RawAdInsight[]): Promise<void> {
+    if (insights.length === 0) return;
+
+    await this.client.insert({
+      table: 'analytics.raw_ad_insights',
+      values: insights,
+      format: 'JSONEachRow',
+      clickhouse_settings: {
+        // Asynchrónny insert pre backfill — neblokujeme worker
+        async_insert: 1,
+        wait_for_async_insert: 0,
+      },
+    });
   }
 
   // Detekcia kreatívnej únavy (fatigue)

@@ -6,6 +6,7 @@ import { MetaHttpClient, CampaignsService } from '@adtech/meta-api';
 import {
   QUEUE_ACCOUNT_DISCOVERY,
   QUEUE_INSIGHTS_SYNC,
+  QUEUE_CREATIVE_SYNC,
   IOS14_RESYNC_WINDOW_HOURS,
 } from '@adtech/shared-types';
 
@@ -24,6 +25,8 @@ export class AccountDiscoveryProcessor extends WorkerHost {
   constructor(
     @InjectQueue(QUEUE_INSIGHTS_SYNC)
     private readonly insightsSyncQueue: Queue,
+    @InjectQueue(QUEUE_CREATIVE_SYNC)
+    private readonly creativeSyncQueue: Queue,
   ) {
     super();
   }
@@ -45,15 +48,27 @@ export class AccountDiscoveryProcessor extends WorkerHost {
     const campaigns = await campaignsService.getCampaigns(metaAccountId);
     this.logger.log(`Discovered ${campaigns.length} campaigns`);
 
-    // 2. Pre každú aktívnu kampaň naplánuj sync insightov
     const today = new Date();
     const dateTo = today.toISOString().split('T')[0];
 
-    // Synchronizácia posledných 3 dní + 72h resync okno pre iOS 14+
     const resyncFrom = new Date(today);
     resyncFrom.setHours(resyncFrom.getHours() - IOS14_RESYNC_WINDOW_HOURS);
     const dateFrom = resyncFrom.toISOString().split('T')[0];
 
+    // 2. Spusti creative-sync ako PRVÝ — aby insights-sync vedel creative_id hneď
+    await this.creativeSyncQueue.add(
+      'sync-creatives',
+      { adAccountId, metaAccountId, accessToken, appSecretProof },
+      {
+        priority: 1,   // Vyššia priorita ako insights-sync
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5_000 },
+        jobId: `creative-sync:${metaAccountId}:${dateTo}`, // Zabráni duplikátom
+      },
+    );
+
+    // 3. Naplánuj insights-sync s oneskorením 30s (čas pre creative-sync)
+    // V produkcii je lepšie event-driven cez job completion hook
     await this.insightsSyncQueue.add(
       'sync-insights',
       {
@@ -64,14 +79,18 @@ export class AccountDiscoveryProcessor extends WorkerHost {
         dateFrom,
         dateTo,
         isResync: true,
+        forceAsync: campaigns.length >= 50,
       },
       {
         priority: 5,
         attempts: 5,
-        backoff: { type: 'exponential', delay: 5000 },
+        backoff: { type: 'exponential', delay: 5_000 },
+        delay: 30_000, // 30s oneskorenie — dáva čas creative-sync dokončiť sa
       },
     );
 
-    this.logger.log(`Scheduled insights sync for account ${metaAccountId}`);
+    this.logger.log(
+      `Scheduled creative-sync (priority 1) + insights-sync (priority 5, delay 30s) for ${metaAccountId}`,
+    );
   }
 }

@@ -42,7 +42,13 @@ export async function runMigrations(client: ClickHouseClient): Promise<void> {
       ENGINE = ReplacingMergeTree(version)
       PARTITION BY toYYYYMM(date)
       ORDER BY (account_id, date, campaign_id, adset_id, ad_id)
-      SETTINGS index_granularity = 8192
+      SETTINGS
+        index_granularity = 8192,
+        -- Async insert nastavenia na úrovni tabuľky (ClickHouse 22.8+)
+        -- Akumuluje malé inserty a zapisuje ich naraz — menej partícií
+        async_insert = 1,
+        async_insert_max_data_size = 10485760, -- 10 MB flush trigger
+        async_insert_busy_timeout_ms = 1000    -- Max 1s čakania pred flush
     `,
   });
 
