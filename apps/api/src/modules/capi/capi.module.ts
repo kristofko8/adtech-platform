@@ -3,14 +3,16 @@ import { HttpModule } from '@nestjs/axios';
 import { CapiService } from './capi.service';
 import { CapiController } from './capi.controller';
 import { EmqMonitorService } from './emq-monitor.service';
+import { PiiNormalizerService } from './pii-normalizer.service';
 
 @Module({
   imports: [HttpModule],
   controllers: [CapiController],
   providers: [
+    PiiNormalizerService,  // SHA-256 normalizácia PII + ochrana pred dvojitým hashovaním
     CapiService,
-    EmqMonitorService,   // Pravidelný EMQ monitoring + Slack notifikácie
+    EmqMonitorService,     // Pravidelný EMQ monitoring + Slack notifikácie
   ],
-  exports: [CapiService, EmqMonitorService],
+  exports: [CapiService, EmqMonitorService, PiiNormalizerService],
 })
 export class CapiModule {}

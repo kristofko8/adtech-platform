@@ -56,6 +56,34 @@ export interface CreativeInsight {
   performance_tier: CreativeTier;
   thumbnail_url?: string;
   ad_name?: string;
+  // WoW porovnanie (voliteľné — keď API vracia porovnanie periód)
+  wow_roas_change?: number;     // napr. +0.34 = ROAS stúplo o 0.34
+  wow_spend_change?: number;    // napr. -0.12 = výdavky klesli o 12%
+}
+
+// Porovnanie period pre ComparisonChart
+export interface CreativePeriodComparison {
+  creative_id: string;
+  ad_name?: string;
+  current: { hook_rate: number; hold_rate: number; roas: number; cpa: number; spend: number };
+  previous: { hook_rate: number; hold_rate: number; roas: number; cpa: number; spend: number };
+}
+
+// Stav BullMQ front (pre admin monitoring)
+export interface QueueStats {
+  name: string;
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
+  paused: boolean;
+  isPaused: boolean;
+}
+
+export interface QueueJobCounts {
+  queues: QueueStats[];
+  fetchedAt: string;
 }
 
 export type AnomalySeverity = 'WARNING' | 'CRITICAL';
@@ -124,6 +152,20 @@ export async function getEmqStatuses(accountId: string): Promise<EmqStatus[]> {
   return apiFetch(`/capi/accounts/${accountId}/emq`);
 }
 
+export async function getCreativePeriodComparison(
+  accountId: string,
+  dateFrom: string,
+  dateTo: string,
+): Promise<CreativePeriodComparison[]> {
+  return apiFetch(
+    `/analytics/accounts/${accountId}/creatives/compare?dateFrom=${dateFrom}&dateTo=${dateTo}`,
+  );
+}
+
+export async function getQueueStats(): Promise<QueueJobCounts> {
+  return apiFetch('/admin/queues/stats');
+}
+
 // ── Mock dáta pre dev (keď API nie je dostupné) ───────────────────────────────
 
 export function getMockKpis(): AccountKpis {
@@ -162,12 +204,47 @@ export function getMockTimeSeries(): SpendDataPoint[] {
 
 export function getMockCreatives(): CreativeInsight[] {
   return [
-    { creative_id: '1001', total_impressions: 420000, total_3s_views: 210000, total_thru_plays: 126000, total_spend: 8200, total_conversions: 410, total_revenue: 38000, hook_rate: 0.50, hold_rate: 0.60, roas: 4.63, cpa: 20.0, performance_tier: 'elite', ad_name: 'Produktové video — UGC štýl Q1' },
-    { creative_id: '1002', total_impressions: 380000, total_3s_views: 152000, total_thru_plays: 76000, total_spend: 7100, total_conversions: 341, total_revenue: 28400, hook_rate: 0.40, hold_rate: 0.50, roas: 4.00, cpa: 20.8, performance_tier: 'strong', ad_name: 'Benefit carousel — 5 slides' },
-    { creative_id: '1003', total_impressions: 290000, total_3s_views: 75400, total_thru_plays: 27000, total_spend: 5400, total_conversions: 189, total_revenue: 16800, hook_rate: 0.26, hold_rate: 0.36, roas: 3.11, cpa: 28.6, performance_tier: 'average', ad_name: 'Static banner — summer 2024' },
-    { creative_id: '1004', total_impressions: 180000, total_3s_views: 32400, total_thru_plays: 8100, total_spend: 4200, total_conversions: 63, total_revenue: 9100, hook_rate: 0.18, hold_rate: 0.25, roas: 2.17, cpa: 66.7, performance_tier: 'fix-it', ad_name: 'Testimonial video — generic' },
-    { creative_id: '1005', total_impressions: 510000, total_3s_views: 234600, total_thru_plays: 140800, total_spend: 9800, total_conversions: 520, total_revenue: 44800, hook_rate: 0.46, hold_rate: 0.60, roas: 4.57, cpa: 18.8, performance_tier: 'elite', ad_name: 'Before/After — skincare results' },
+    { creative_id: '1001', total_impressions: 420000, total_3s_views: 210000, total_thru_plays: 126000, total_spend: 8200, total_conversions: 410, total_revenue: 38000, hook_rate: 0.50, hold_rate: 0.60, roas: 4.63, cpa: 20.0, performance_tier: 'elite', ad_name: 'Produktové video — UGC štýl Q1', wow_roas_change: 0.31, wow_spend_change: 0.18 },
+    { creative_id: '1002', total_impressions: 380000, total_3s_views: 152000, total_thru_plays: 76000, total_spend: 7100, total_conversions: 341, total_revenue: 28400, hook_rate: 0.40, hold_rate: 0.50, roas: 4.00, cpa: 20.8, performance_tier: 'strong', ad_name: 'Benefit carousel — 5 slides', wow_roas_change: 0.12, wow_spend_change: 0.07 },
+    { creative_id: '1003', total_impressions: 290000, total_3s_views: 75400, total_thru_plays: 27000, total_spend: 5400, total_conversions: 189, total_revenue: 16800, hook_rate: 0.26, hold_rate: 0.36, roas: 3.11, cpa: 28.6, performance_tier: 'average', ad_name: 'Static banner — summer 2024', wow_roas_change: -0.09, wow_spend_change: -0.05 },
+    { creative_id: '1004', total_impressions: 180000, total_3s_views: 32400, total_thru_plays: 8100, total_spend: 4200, total_conversions: 63, total_revenue: 9100, hook_rate: 0.18, hold_rate: 0.25, roas: 2.17, cpa: 66.7, performance_tier: 'fix-it', ad_name: 'Testimonial video — generic', wow_roas_change: -0.44, wow_spend_change: -0.20 },
+    { creative_id: '1005', total_impressions: 510000, total_3s_views: 234600, total_thru_plays: 140800, total_spend: 9800, total_conversions: 520, total_revenue: 44800, hook_rate: 0.46, hold_rate: 0.60, roas: 4.57, cpa: 18.8, performance_tier: 'elite', ad_name: 'Before/After — skincare results', wow_roas_change: 0.22, wow_spend_change: 0.31 },
+    { creative_id: '1006', total_impressions: 150000, total_3s_views: 37500, total_thru_plays: 15000, total_spend: 3100, total_conversions: 78, total_revenue: 12500, hook_rate: 0.25, hold_rate: 0.40, roas: 4.03, cpa: 39.7, performance_tier: 'average', ad_name: 'Brand awareness loop — 15s', wow_roas_change: 0.41, wow_spend_change: 0.09 },
   ];
+}
+
+export function getMockCreativeComparison(): CreativePeriodComparison[] {
+  return [
+    {
+      creative_id: '1005',
+      ad_name: 'Before/After — skincare',
+      current:  { hook_rate: 0.46, hold_rate: 0.60, roas: 4.57, cpa: 18.8, spend: 9800 },
+      previous: { hook_rate: 0.35, hold_rate: 0.48, roas: 3.35, cpa: 24.1, spend: 7500 },
+    },
+    {
+      creative_id: '1001',
+      ad_name: 'UGC štýl Q1',
+      current:  { hook_rate: 0.50, hold_rate: 0.60, roas: 4.63, cpa: 20.0, spend: 8200 },
+      previous: { hook_rate: 0.44, hold_rate: 0.55, roas: 4.32, cpa: 21.8, spend: 6950 },
+    },
+    {
+      creative_id: '1002',
+      ad_name: 'Benefit carousel',
+      current:  { hook_rate: 0.40, hold_rate: 0.50, roas: 4.00, cpa: 20.8, spend: 7100 },
+      previous: { hook_rate: 0.37, hold_rate: 0.47, roas: 3.88, cpa: 22.0, spend: 6640 },
+    },
+  ];
+}
+
+export function getMockQueueStats(): QueueJobCounts {
+  return {
+    queues: [
+      { name: 'account-discovery', waiting: 0, active: 1, completed: 842, failed: 3, delayed: 0, paused: false, isPaused: false },
+      { name: 'insights-sync',     waiting: 4, active: 2, completed: 7218, failed: 12, delayed: 8, paused: false, isPaused: false },
+      { name: 'creative-sync',     waiting: 1, active: 0, completed: 419, failed: 0, delayed: 1, paused: false, isPaused: false },
+    ],
+    fetchedAt: new Date().toISOString(),
+  };
 }
 
 export function getMockAnomalies(): AnomalyRecord[] {

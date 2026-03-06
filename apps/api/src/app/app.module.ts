@@ -13,6 +13,7 @@ import { AdAccountsModule } from '../modules/ad-accounts/ad-accounts.module';
 import { MediaProxyModule } from '../modules/media-proxy/media-proxy.module';
 import { RuleEngineModule } from '../modules/rule-engine/rule-engine.module';
 import { CapiModule } from '../modules/capi/capi.module';
+import { AdminModule } from '../modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -39,6 +40,8 @@ import { CapiModule } from '../modules/capi/capi.module';
     MediaProxyModule,
     RuleEngineModule,
     CapiModule,
+    // Admin / Monitoring
+    AdminModule,  // BullBoard UI + REST queue stats
   ],
   controllers: [AppController],
   providers: [AppService],

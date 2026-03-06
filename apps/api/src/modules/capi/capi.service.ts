@@ -1,28 +1,18 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
-import * as crypto from 'crypto';
 import * as Redis from 'ioredis';
 import { firstValueFrom } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { CAPI_EVENT_DEDUP_WINDOW_HOURS, CAPI_MIN_EMQ_SCORE } from '@adtech/shared-types';
+import { PiiNormalizerService, type RawUserData } from './pii-normalizer.service';
 
 export interface CapiEventData {
   eventName: string;
   eventTime: number; // Unix timestamp
   eventId: string;   // UUID pre deduplikáciu
   eventSourceUrl?: string;
-  userData: {
-    email?: string;
-    phone?: string;
-    firstName?: string;
-    lastName?: string;
-    externalId?: string;
-    clientIpAddress?: string;
-    clientUserAgent?: string;
-    fbp?: string;    // _fbp cookie
-    fbc?: string;    // _fbc cookie
-  };
+  userData: RawUserData; // Rozšírené o city/state/zip/country
   customData?: {
     currency?: string;
     value?: number;
@@ -52,6 +42,7 @@ export class CapiService {
     private readonly http: HttpService,
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly piiNormalizer: PiiNormalizerService,
   ) {
     this.redis = new Redis.Redis({
       host: config.get('redis.host'),
@@ -86,9 +77,9 @@ export class CapiService {
       return { eventsReceived: 0, fbtrace_id: 'deduped' };
     }
 
-    // Hashujeme osobné údaje (PII)
+    // Normalizácia + SHA-256 hashing PII cez PiiNormalizerService
     const hashedEvents = deduplicatedEvents.map((event) =>
-      this.hashUserData(event),
+      this.buildMetaPayload(event),
     );
 
     const payload: Record<string, any> = {
@@ -117,35 +108,29 @@ export class CapiService {
     return response.data;
   }
 
-  // SHA-256 hashing všetkých PII polí
-  private hashUserData(event: CapiEventData): Record<string, any> {
+  // Normalizácia PII + zostavenie Meta payload
+  private buildMetaPayload(event: CapiEventData): Record<string, any> {
     const { userData, ...rest } = event;
 
-    const hashedUser: Record<string, string | undefined> = {};
+    // PiiNormalizerService:
+    //  - detekuje dvojité hashovanie (64-char hex → skip)
+    //  - validuje formát emailu + E.164 telefónu
+    //  - hashuje city/state/zip/country (Meta Extended Match)
+    //  - loguje varovania pri nevalidných vstupoch
+    const { hashed, warnings, hashedFieldCount } = this.piiNormalizer.normalize(userData);
 
-    if (userData.email) {
-      hashedUser['em'] = this.sha256(userData.email.toLowerCase().trim());
-    }
-    if (userData.phone) {
-      // Normalizácia: len číslice, bez medzier
-      const normalizedPhone = userData.phone.replace(/\D/g, '');
-      hashedUser['ph'] = this.sha256(normalizedPhone);
-    }
-    if (userData.firstName) {
-      hashedUser['fn'] = this.sha256(userData.firstName.toLowerCase().trim());
-    }
-    if (userData.lastName) {
-      hashedUser['ln'] = this.sha256(userData.lastName.toLowerCase().trim());
-    }
-    if (userData.externalId) {
-      hashedUser['external_id'] = this.sha256(userData.externalId);
+    if (warnings.length > 0) {
+      this.logger.warn(
+        `[CapiService] PII varovania pre event "${rest.eventName}" (${rest.eventId}):\n` +
+        warnings.join('\n'),
+      );
     }
 
-    // Tieto polia sa NEHASHUJÚ
-    if (userData.clientIpAddress) hashedUser['client_ip_address'] = userData.clientIpAddress;
-    if (userData.clientUserAgent) hashedUser['client_user_agent'] = userData.clientUserAgent;
-    if (userData.fbp) hashedUser['fbp'] = userData.fbp;
-    if (userData.fbc) hashedUser['fbc'] = userData.fbc;
+    if (hashedFieldCount === 0) {
+      this.logger.warn(
+        `[CapiService] Udalosť "${rest.eventName}" nemá žiadne PII polia — Meta EMQ bude 0`,
+      );
+    }
 
     return {
       event_name: rest.eventName,
@@ -153,13 +138,9 @@ export class CapiService {
       event_id: rest.eventId,
       event_source_url: rest.eventSourceUrl,
       action_source: rest.actionSource,
-      user_data: hashedUser,
+      user_data: hashed,
       custom_data: rest.customData,
     };
-  }
-
-  private sha256(value: string): string {
-    return crypto.createHash('sha256').update(value).digest('hex');
   }
 
   // Kontrola, či sme túto udalosť už odoslali (deduplikácia)
