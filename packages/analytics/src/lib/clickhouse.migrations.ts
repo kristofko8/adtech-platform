@@ -154,7 +154,87 @@ export async function runMigrations(client: ClickHouseClient): Promise<void> {
     `,
   });
 
-  // 6. Anomálie log tabuľka
+  // 6. Predagregovaná tabuľka denných štatistík pre Z-skóre výpočet
+  //
+  // Cieľ: Nahradiť pomalé real-time WINDOW funkcie v anomaly.queries.ts
+  //       predagregovanými hodnotami per (account, campaign, metric, day_of_week).
+  //       day_of_week umožňuje sezónne porovnanie (pondelok vs. pondelok).
+  await client.command({
+    query: `
+      CREATE TABLE IF NOT EXISTS analytics.campaign_metric_daily (
+        account_id    UInt64,
+        campaign_id   UInt64,
+        date          Date,
+        day_of_week   UInt8,  -- 1=Pon, 7=Ned (ISO týždeň)
+        spend         Float64,
+        revenue       Float64,
+        impressions   UInt64,
+        clicks        UInt64,
+        conversions   UInt64,
+        roas          Float64,
+        cpa           Float64,
+        ctr           Float64
+      )
+      ENGINE = ReplacingMergeTree()
+      PARTITION BY toYYYYMM(date)
+      ORDER BY (account_id, campaign_id, date)
+      SETTINGS index_granularity = 8192
+    `,
+  });
+
+  // Materialized View: automaticky agreguje z raw_ad_insights
+  await client.command({
+    query: `
+      CREATE MATERIALIZED VIEW IF NOT EXISTS analytics.campaign_metric_daily_mv
+      TO analytics.campaign_metric_daily
+      AS SELECT
+        account_id,
+        campaign_id,
+        date,
+        toDayOfWeek(date)             AS day_of_week,
+        sum(spend)                    AS spend,
+        sum(revenue)                  AS revenue,
+        sum(impressions)              AS impressions,
+        sum(clicks)                   AS clicks,
+        sum(conversions)              AS conversions,
+        if(sum(spend) > 0,
+          sum(revenue) / sum(spend), 0)       AS roas,
+        if(sum(conversions) > 0,
+          sum(spend) / sum(conversions), 0)   AS cpa,
+        if(sum(impressions) > 0,
+          sum(clicks) / sum(impressions) * 100, 0) AS ctr
+      FROM analytics.raw_ad_insights
+      GROUP BY account_id, campaign_id, date
+    `,
+  });
+
+  // 7. Z-skóre baseline tabuľka (predagregovaná, aktualizovaná denne)
+  //
+  // Ukladá kĺzavé priemery a štandardné odchýlky za 21 dní.
+  // Obsahuje sezónne aj globálne hodnoty.
+  // ETL job ju naplní pomocou INSERT SELECT z campaign_metric_daily.
+  await client.command({
+    query: `
+      CREATE TABLE IF NOT EXISTS analytics.zscore_baseline (
+        account_id      UInt64,
+        campaign_id     UInt64,
+        metric          LowCardinality(String),
+        day_of_week     UInt8,    -- 0 = všetky dni; 1-7 = konkrétny deň
+        baseline_date   Date,     -- Dátum výpočtu baselineu
+        window_days     UInt8,    -- Veľkosť okna (21 dní)
+        mean            Float64,
+        std             Float64,
+        sample_count    UInt16,
+        updated_at      DateTime DEFAULT now()
+      )
+      ENGINE = ReplacingMergeTree(updated_at)
+      PARTITION BY toYYYYMM(baseline_date)
+      ORDER BY (account_id, campaign_id, metric, day_of_week, baseline_date)
+      TTL baseline_date + INTERVAL 60 DAY
+    `,
+  });
+
+  // 8. Anomálie log tabuľka
   await client.command({
     query: `
       CREATE TABLE IF NOT EXISTS analytics.anomaly_log (
@@ -166,7 +246,8 @@ export async function runMigrations(client: ClickHouseClient): Promise<void> {
         baseline_mean Float64,
         baseline_std  Float64,
         z_score       Float64,
-        severity      LowCardinality(String)
+        severity      LowCardinality(String),
+        day_of_week   UInt8 DEFAULT 0  -- Pre sezónne porovnanie
       )
       ENGINE = MergeTree()
       PARTITION BY toYYYYMM(detected_at)
