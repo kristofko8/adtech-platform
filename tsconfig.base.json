@@ -12,10 +12,16 @@
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
     "noImplicitReturns": true,
-    "noUnusedLocals": true,
+    "noUnusedLocals": false,
     "skipLibCheck": true,
     "strict": true,
     "target": "es2022",
-    "customConditions": ["@org/source"]
+    "customConditions": ["@adtech/source"],
+    "paths": {
+      "@adtech/shared-types": ["packages/shared-types/src/index.ts"],
+      "@adtech/database": ["packages/database/src/index.ts"],
+      "@adtech/analytics": ["packages/analytics/src/index.ts"],
+      "@adtech/meta-api": ["packages/meta-api/src/index.ts"]
+    }
   }
 }

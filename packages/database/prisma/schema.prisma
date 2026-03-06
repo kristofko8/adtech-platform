@@ -1,0 +1,377 @@
+// AdTech Platform - Prisma Schema
+// Transakčná vrstva (OLTP) - PostgreSQL
+
+generator client {
+  provider      = "prisma-client-js"
+  output        = "../generated"
+  binaryTargets = ["native"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ORGANIZÁCIE A POUŽÍVATELIA (Multi-tenant základ)
+// ============================================================
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  logoUrl   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users      User[]
+  adAccounts AdAccount[]
+  metaTokens MetaToken[]
+
+  @@map("organizations")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  MEDIA_BUYER
+  ANALYST
+  CLIENT
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  name           String
+  passwordHash   String?
+  role           UserRole @default(MEDIA_BUYER)
+  isActive       Boolean  @default(true)
+  lastLoginAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  refreshTokens  RefreshToken[]
+  auditLogs      AuditLog[]
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ============================================================
+// META API TOKENY (OAuth 2.0)
+// ============================================================
+
+model MetaToken {
+  id               String    @id @default(cuid())
+  accessToken      String    // Šifrovaný AES-256
+  tokenType        String    @default("bearer")
+  expiresAt        DateTime?
+  longLivedToken   String?   // 60-dňový token, šifrovaný
+  appScopedUserId  String?   // Meta User ID
+  businessId       String?   // Meta Business Manager ID
+  scopes           String[]  // Povolené oprávnenia
+  isActive         Boolean   @default(true)
+  lastRefreshedAt  DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  adAccounts AdAccount[]
+
+  @@index([organizationId])
+  @@map("meta_tokens")
+}
+
+// ============================================================
+// REKLAMNÉ ÚČTY (Ad Accounts)
+// ============================================================
+
+enum AdAccountStatus {
+  ACTIVE
+  DISABLED
+  PENDING_REVIEW
+  IN_GRACE_PERIOD
+  TEMPORARILY_UNAVAILABLE
+  CLOSED
+}
+
+model AdAccount {
+  id               String          @id @default(cuid())
+  metaAccountId    String          @unique // act_XXXXXXXXXX
+  name             String
+  currency         String          @default("USD")
+  timezone         String          @default("UTC")
+  status           AdAccountStatus @default(ACTIVE)
+  spendCap         Float?
+  balance          Float?
+  businessName     String?
+  lastSyncAt       DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  metaTokenId String
+  metaToken   MetaToken @relation(fields: [metaTokenId], references: [id])
+
+  automationRules AutomationRule[]
+  syncJobs        SyncJob[]
+  capiConnectors  CapiConnector[]
+
+  @@index([organizationId])
+  @@index([metaAccountId])
+  @@map("ad_accounts")
+}
+
+// ============================================================
+// AUTOMATIZAČNÉ PRAVIDLÁ (Rule Engine)
+// ============================================================
+
+enum RuleType {
+  BUDGET_PROTECTION
+  PERFORMANCE_DROP
+  CREATIVE_FATIGUE
+  SCALING_WINNER
+  CUSTOM
+}
+
+enum RuleStatus {
+  ACTIVE
+  PAUSED
+  DRAFT
+}
+
+enum RuleAction {
+  PAUSE_CAMPAIGN
+  PAUSE_ADSET
+  PAUSE_AD
+  INCREASE_BUDGET
+  DECREASE_BUDGET
+  UPDATE_BID
+  SEND_NOTIFICATION
+  MARK_CREATIVE_FATIGUED
+}
+
+model AutomationRule {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  type        RuleType
+  status      RuleStatus @default(ACTIVE)
+
+  // Podmienky vo formáte JSON (napr. { metric: "roas", operator: "lt", value: 2.0, window: "24h" })
+  conditions  Json
+
+  // Akcie vo formáte JSON (napr. [{ action: "PAUSE_CAMPAIGN", params: {} }])
+  actions     Json
+
+  // Limity na vykonávanie
+  cooldownMinutes    Int  @default(60)   // Minimálny čas medzi akciami
+  maxExecutionsPerDay Int @default(3)
+
+  lastTriggeredAt    DateTime?
+  executionCount     Int       @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  adAccountId String
+  adAccount   AdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+
+  ruleExecutions RuleExecution[]
+
+  @@index([adAccountId])
+  @@index([status])
+  @@map("automation_rules")
+}
+
+model RuleExecution {
+  id          String   @id @default(cuid())
+  triggeredAt DateTime @default(now())
+  result      String   // "success" | "failed" | "skipped"
+  details     Json     // { triggeredByMetric: ..., actionsTaken: [...] }
+
+  ruleId String
+  rule   AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId])
+  @@map("rule_executions")
+}
+
+// ============================================================
+// ETL SYNCHRONIZAČNÉ JOBY
+// ============================================================
+
+enum SyncJobType {
+  CAMPAIGNS
+  ADSETS
+  ADS
+  CREATIVES
+  INSIGHTS
+  INSIGHTS_RESYNC
+}
+
+enum SyncJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model SyncJob {
+  id          String        @id @default(cuid())
+  type        SyncJobType
+  status      SyncJobStatus @default(PENDING)
+  startedAt   DateTime?
+  completedAt DateTime?
+  errorMessage String?
+  itemsProcessed Int       @default(0)
+  itemsFailed    Int       @default(0)
+
+  // Rozsah synchronizácie
+  dateFrom    DateTime?
+  dateTo      DateTime?
+  metaJobId   String?     // Pre asynchrónne Meta reporty
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  adAccountId String
+  adAccount   AdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+
+  @@index([adAccountId])
+  @@index([status])
+  @@index([type])
+  @@map("sync_jobs")
+}
+
+// ============================================================
+// KREATÍVNE AKTÍVA (Asset Map pre Entity Resolution)
+// ============================================================
+
+enum AssetType {
+  IMAGE
+  VIDEO
+  CAROUSEL
+}
+
+model AssetMap {
+  id             String    @id @default(cuid())
+  globalAssetId  String    @unique // Naše interné ID
+  assetType      AssetType
+  imageHash      String?   // Pre obrázky (Meta image_hash)
+  videoId        String?   // Pre videá (Meta video_id)
+  pHash          String?   // Perceptuálny hash pre podobnosť
+  s3Key          String?   // Cesta v S3 archíve
+  s3Url          String?   // Archivovaná URL
+  thumbnailS3Key String?
+  width          Int?
+  height         Int?
+  durationSec    Int?      // Pre videá
+  tags           String[]  // ["UGC", "9:16", "face-detected"]
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  metaCreatives MetaCreativeMap[]
+
+  @@index([imageHash])
+  @@index([videoId])
+  @@map("asset_maps")
+}
+
+model MetaCreativeMap {
+  id           String @id @default(cuid())
+  metaCreativeId String
+  createdAt    DateTime @default(now())
+
+  globalAssetId String
+  asset         AssetMap @relation(fields: [globalAssetId], references: [globalAssetId])
+
+  @@unique([metaCreativeId, globalAssetId])
+  @@index([metaCreativeId])
+  @@map("meta_creative_maps")
+}
+
+// ============================================================
+// CAPI (Conversions API) KONEKTORY
+// ============================================================
+
+model CapiConnector {
+  id              String   @id @default(cuid())
+  pixelId         String   // Meta Pixel ID
+  accessToken     String   // CAPI prístupový token (šifrovaný)
+  isActive        Boolean  @default(true)
+  testEventCode   String?  // Pre testovanie bez ostrých dát
+  emqScore        Float?   // Event Match Quality (0-10)
+  lastEmqCheck    DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  adAccountId String
+  adAccount   AdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+
+  @@index([adAccountId])
+  @@map("capi_connectors")
+}
+
+// ============================================================
+// NOTIFIKÁCIE A AUDIT LOG
+// ============================================================
+
+enum NotificationChannel {
+  SLACK
+  EMAIL
+  IN_APP
+}
+
+model Notification {
+  id        String              @id @default(cuid())
+  channel   NotificationChannel
+  title     String
+  message   String
+  payload   Json?
+  sentAt    DateTime?
+  isRead    Boolean             @default(false)
+  createdAt DateTime            @default(now())
+
+  @@index([isRead])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String   // napr. "rule.executed", "budget.updated", "campaign.paused"
+  entity    String   // napr. "Campaign", "AutomationRule"
+  entityId  String
+  before    Json?
+  after     Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}

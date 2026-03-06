@@ -1,0 +1,82 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: adtech-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: adtech
+      POSTGRES_PASSWORD: adtech_secret
+      POSTGRES_DB: adtech_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U adtech -d adtech_db']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    container_name: adtech-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: analytics
+      CLICKHOUSE_USER: adtech
+      CLICKHOUSE_PASSWORD: adtech_secret
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'
+    ports:
+      - '8123:8123'   # HTTP interface
+      - '9000:9000'   # Native TCP interface
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./infra/clickhouse/config.xml:/etc/clickhouse-server/config.d/custom.xml:ro
+      - ./infra/clickhouse/users.xml:/etc/clickhouse-server/users.d/custom.xml:ro
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:8123/ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: adtech-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass adtech_secret
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', 'adtech_secret', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO ako lokálna náhrada S3 pre archív kreatív
+  minio:
+    image: minio/minio:latest
+    container_name: adtech-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: adtech
+      MINIO_ROOT_PASSWORD: adtech_secret_minio
+    ports:
+      - '9002:9000'
+      - '9001:9001'
+    volumes:
+      - minio_data:/data
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  redis_data:
+  minio_data:
+
+networks:
+  default:
+    name: adtech-network

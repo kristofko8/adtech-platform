@@ -2,5 +2,36 @@
   "extends": "./tsconfig.base.json",
   "compileOnSave": false,
   "files": [],
-  "references": []
+  "references": [
+    {
+      "path": "./apps/api-e2e"
+    },
+    {
+      "path": "./apps/api"
+    },
+    {
+      "path": "./apps/worker-e2e"
+    },
+    {
+      "path": "./apps/worker"
+    },
+    {
+      "path": "./apps/web-e2e"
+    },
+    {
+      "path": "./apps/web"
+    },
+    {
+      "path": "./packages/shared-types"
+    },
+    {
+      "path": "./packages/meta-api"
+    },
+    {
+      "path": "./packages/analytics"
+    },
+    {
+      "path": "./packages/database"
+    }
+  ]
 }
